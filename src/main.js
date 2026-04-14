@@ -66,9 +66,11 @@ const terrainParams = {
   riverNoiseStrength: 0.9,
   branchOffset: -0.22,
   branchWeight: 0.48,
-  lowColor: '#7f6c4f',
-  highColor: '#5f8551',
-  riverColor: '#2e5a83',
+  lowColor: '#d78b16',
+  highColor: '#2c840c',
+  riverColor: '#1d359d',
+  coastBlend: 0.25,
+  underwaterRange: 2.8,
 }
 
 const waterParams = {
@@ -77,6 +79,7 @@ const waterParams = {
   threshold: 0.21,
   speed: 0.07,
   y: -0.7,
+  opacity: 0.55,
 }
 
 const mapHalf = terrainParams.mapSize * 0.5
@@ -278,8 +281,16 @@ function rebuildTerrain() {
       riverMask * terrainParams.riverDepth
     terrainPositions.setY(i, height)
 
-    const heightT = clamp01(n * 0.5 + 0.5)
-    mixedColor.copy(lowColor).lerp(highColor, heightT).lerp(riverColor, riverMask * 0.8)
+    const levelDelta = height - waterParams.y
+
+    if (levelDelta <= 0) {
+      const depth = -levelDelta
+      const depthMix = clamp01(depth / Math.max(0.001, terrainParams.underwaterRange))
+      mixedColor.copy(lowColor).lerp(riverColor, depthMix)
+    } else {
+      const coastMix = clamp01(levelDelta / Math.max(0.001, terrainParams.coastBlend))
+      mixedColor.copy(lowColor).lerp(highColor, coastMix)
+    }
 
     terrainColors[i * 3 + 0] = mixedColor.r
     terrainColors[i * 3 + 1] = mixedColor.g
@@ -351,6 +362,7 @@ const waterSlopeFrequencyUniform = uniform(waterParams.slopeFrequency)
 const waterNoiseFrequencyUniform = uniform(waterParams.noiseFrequency)
 const rippleThresholdUniform = uniform(waterParams.threshold)
 const waterLocalTimeUniform = uniform(0)
+const waterOpacityUniform = uniform(waterParams.opacity)
 
 waterSurface.material.outputNode = Fn(() => {
   const terrainUv = vec2(
@@ -377,7 +389,7 @@ waterSurface.material.outputNode = Fn(() => {
 
   ripple.greaterThan(rippleThresholdUniform).discard()
 
-  return vec4(vec3(1), 1)
+  return vec4(vec3(1), waterOpacityUniform)
 })()
 scene.add(waterSurface)
 
@@ -452,14 +464,32 @@ terrainFolder
     step: 0.001,
   })
   .on('change', rebuildTerrain)
-terrainFolder
-  .addBinding(terrainParams, 'lowColor', { label: 'low', view: 'color' })
+
+const biomeFolder = pane.addFolder({ title: 'Biome Colors' })
+biomeFolder
+  .addBinding(terrainParams, 'lowColor', { label: 'low / shore', view: 'color' })
   .on('change', rebuildTerrain)
-terrainFolder
-  .addBinding(terrainParams, 'highColor', { label: 'high', view: 'color' })
+biomeFolder
+  .addBinding(terrainParams, 'highColor', { label: 'high / land', view: 'color' })
   .on('change', rebuildTerrain)
-terrainFolder
-  .addBinding(terrainParams, 'riverColor', { label: 'river', view: 'color' })
+biomeFolder
+  .addBinding(terrainParams, 'riverColor', { label: 'deep / fond', view: 'color' })
+  .on('change', rebuildTerrain)
+biomeFolder
+  .addBinding(terrainParams, 'coastBlend', {
+    label: 'coast blend',
+    min: 0.01,
+    max: 1.2,
+    step: 0.01,
+  })
+  .on('change', rebuildTerrain)
+biomeFolder
+  .addBinding(terrainParams, 'underwaterRange', {
+    label: 'underwater range',
+    min: 0.2,
+    max: 8,
+    step: 0.05,
+  })
   .on('change', rebuildTerrain)
 
 const riverFolder = pane.addFolder({ title: 'River Shape' })
@@ -560,21 +590,22 @@ waterFolder
     rippleThresholdUniform.value = event.value
   })
 waterFolder
-  .addBinding(waterParams, 'y', {
-    label: 'surface y',
-    min: -2,
-    max: 2,
-    step: 0.01,
-  })
-  .on('change', (event) => {
-    waterSurface.position.y = event.value
-  })
-waterFolder.addBinding(waterParams, 'speed', {
+  .addBinding(waterParams, 'speed', {
   label: 'time speed',
   min: 0,
   max: 1,
   step: 0.01,
 })
+waterFolder
+  .addBinding(waterParams, 'opacity', {
+    label: 'opacity',
+    min: 0.05,
+    max: 1,
+    step: 0.01,
+  })
+  .on('change', (event) => {
+    waterOpacityUniform.value = event.value
+  })
 
 const exportFolder = pane.addFolder({ title: 'Export' })
 exportStatusBinding = exportFolder.addBinding(exportUi, 'status', {
